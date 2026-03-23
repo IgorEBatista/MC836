@@ -34,9 +34,11 @@ def receive_text_response(sniffer: socket.socket) -> str:
 def receive_stream(sniffer: socket.socket, video_name: str):
     """
     Recebe pacotes RTP do servidor e salva o vídeo em disco.
+    Detecta automaticamente se a resposta é erro (texto) ou stream (RTP).
 
-    O payload UDP contém: [RTP Header (12 bytes)][Chunk de vídeo]
-    O streaming termina quando não chegam pacotes por TIMEOUT segundos.
+    Detecção: se o payload UDP tem ≥ 12 bytes e o primeiro byte indica
+    versão RTP = 2 (bits 6-7 == 0b10), é um pacote RTP. Caso contrário,
+    é uma mensagem de texto (erro do servidor).
     """
     TIMEOUT = 3.0  # Segundos sem pacotes para considerar fim do stream
 
@@ -47,63 +49,75 @@ def receive_stream(sniffer: socket.socket, video_name: str):
     total_bytes = 0
     lost_packets = 0
     expected_seq = None
+    file_handle = None
 
-    print(f"[+] Recebendo stream → {output_path}")
-
-    with open(output_path, "wb") as f:
-        sniffer.settimeout(TIMEOUT)
-        try:
-            while True:
-                try:
-                    raw_packet, _ = sniffer.recvfrom(65535)
-                except socket.timeout:
+    sniffer.settimeout(TIMEOUT)
+    try:
+        while True:
+            try:
+                raw_packet, _ = sniffer.recvfrom(65535)
+            except socket.timeout:
+                if total_packets == 0:
+                    print("[!] Timeout: nenhuma resposta do servidor.")
+                else:
                     print(f"[!] Timeout de {TIMEOUT}s sem pacotes. Fim do stream.")
-                    break
+                break
 
-                raw_packet = raw_packet[14:]  # Pula header Ethernet
+            raw_packet = raw_packet[14:]  # Pula header Ethernet
 
-                if len(raw_packet) < 28:
-                    continue
-                iph = unpack_iph(raw_packet)
-                if iph[6] != 17:
-                    continue
-                udph = unpack_udp(raw_packet)
-                if udph[1] != REC_PORT:
-                    continue
+            if len(raw_packet) < 28:
+                continue
+            iph = unpack_iph(raw_packet)
+            if iph[6] != 17:
+                continue
+            udph = unpack_udp(raw_packet)
+            if udph[1] != REC_PORT:
+                continue
 
-                # Payload UDP = RTP Header + Chunk de vídeo
-                udp_payload = unpack_data(raw_packet)
+            udp_payload = unpack_data(raw_packet)
 
-                if len(udp_payload) < RTP_HEADER_SIZE:
-                    continue
+            # --- Detecção: RTP ou mensagem de texto? ---
+            # Pacote RTP: ≥ 12 bytes e versão = 2 (bits 6-7 do primeiro byte)
+            is_rtp = len(udp_payload) >= RTP_HEADER_SIZE and ((udp_payload[0] >> 6) & 0x03) == 2
 
-                # Parse do pacote RTP
-                rtp = rtp_unpack(udp_payload)
+            if not is_rtp:
+                # É uma mensagem de texto (erro do servidor)
+                text = udp_payload.decode("utf-8", errors="ignore")
+                print(f"> Resposta do Servidor: {text}")
+                break
 
-                # Detecção de perda de pacotes pelo sequence number
-                if expected_seq is not None:
-                    diff = (rtp["seq"] - expected_seq) & 0xFFFF
-                    if diff > 1 and diff < 0x8000:  # Pacotes perdidos (não reordenados)
-                        lost_packets += diff - 1
-                expected_seq = (rtp["seq"] + 1) & 0xFFFF
+            # --- É pacote RTP: processar stream ---
+            if file_handle is None:
+                print(f"[+] Recebendo stream → {output_path}")
+                file_handle = open(output_path, "wb")
 
-                # Escreve o chunk de vídeo no arquivo
-                f.write(rtp["payload"])
-                total_packets += 1
-                total_bytes += len(rtp["payload"])
+            rtp = rtp_unpack(udp_payload)
 
-                # Log a cada 100 pacotes
-                if total_packets % 100 == 0:
-                    print(f"  [{total_packets} pkts | {total_bytes / 1024:.1f} KB | perdidos: {lost_packets}]")
+            # Detecção de perda de pacotes pelo sequence number
+            if expected_seq is not None:
+                diff = (rtp["seq"] - expected_seq) & 0xFFFF
+                if 1 < diff < 0x8000:
+                    lost_packets += diff - 1
+            expected_seq = (rtp["seq"] + 1) & 0xFFFF
 
-        finally:
-            sniffer.settimeout(None)  # Restaura o socket para blocking
+            file_handle.write(rtp["payload"])
+            total_packets += 1
+            total_bytes += len(rtp["payload"])
 
-    print(f"\n[bold green]✓ Stream finalizado![/bold green]")
-    print(f"  Pacotes recebidos: {total_packets}")
-    print(f"  Pacotes perdidos:  {lost_packets}")
-    print(f"  Total recebido:    {total_bytes / 1024:.1f} KB")
-    print(f"  Salvo em:          {output_path}")
+            if total_packets % 100 == 0:
+                print(f"  [{total_packets} pkts | {total_bytes / 1316:.1f} KB | perdidos: {lost_packets}]")
+
+    finally:
+        sniffer.settimeout(None)
+        if file_handle is not None:
+            file_handle.close()
+
+    if total_packets > 0:
+        print(f"\n[bold green]✓ Stream finalizado![/bold green]")
+        print(f"  Pacotes recebidos: {total_packets}")
+        print(f"  Pacotes perdidos:  {lost_packets}")
+        print(f"  Total recebido:    {total_bytes / 1024:.1f} KB")
+        print(f"  Salvo em:          {output_path}")
 
 
 def start_client():
@@ -122,6 +136,7 @@ def start_client():
     dest_ip = "10.0.1.2"  # IP do Servidor
 
     print(Markdown("""# Aplicação de Streaming (Client-Side)
+                   BEM VINDO A TWITCHÊ!
     - Digite **catalog** para listar vídeos.
     - Digite **stream <nome_do_video>** para assistir.
     - Digite **q** para sair.
