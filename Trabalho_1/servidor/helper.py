@@ -125,3 +125,40 @@ def build_udp_packet(src_ip: str, dest_ip: str, src_port: int, dest_port: int, d
 
     # 6. Concatenar Header IP + Header UDP + Payload
     return ip_header + udp_header + payload
+
+def build_udp_packet_bytes(src_ip: str, dest_ip: str, src_port: int, dest_port: int, data: bytes) -> bytes:
+    """
+    Constrói um pacote IP/UDP completo, aceitando payload já em bytes (para dados binários como RTP/vídeo).
+    Mesma lógica de build_udp_packet, mas sem chamar .encode() no payload.
+    """
+    payload = data
+
+    src_addr = socket.inet_aton(src_ip)
+    dest_addr = socket.inet_aton(dest_ip)
+    protocol = 17
+    udp_length = 8 + len(payload)
+
+    pseudo_header = struct.pack('!4s4sBBH', src_addr, dest_addr, 0, protocol, udp_length)
+    udp_header_tmp = struct.pack(UDP_FORMAT, src_port, dest_port, udp_length, 0)
+    udp_checksum = calculate_checksum(pseudo_header + udp_header_tmp + payload)
+    udp_header = struct.pack(UDP_FORMAT, src_port, dest_port, udp_length, udp_checksum)
+
+    version_ihl = 0x45
+    tos = 0
+    total_length = 20 + udp_length
+    identification = 54321
+    flags_offset = 0
+    ttl = 64
+    ip_checksum = 0
+
+    ip_header_tmp = struct.pack(IP_FORMAT,
+        version_ihl, tos, total_length, identification, flags_offset,
+        ttl, protocol, ip_checksum, src_addr, dest_addr
+    )
+    ip_checksum = calculate_checksum(ip_header_tmp)
+    ip_header = struct.pack(IP_FORMAT,
+        version_ihl, tos, total_length, identification, flags_offset,
+        ttl, protocol, ip_checksum, src_addr, dest_addr
+    )
+
+    return ip_header + udp_header + payload

@@ -1,7 +1,9 @@
 import os
+import time
 import socket
 from rich import print
-from helper import unpack_iph, unpack_udp, unpack_data, build_udp_packet
+from helper import unpack_iph, unpack_udp, unpack_data, build_udp_packet, build_udp_packet_bytes
+from rtp_protocol import rtp_pack, make_ssrc, RTP_HEADER_SIZE
 
 def send_catalog(sender, src_ip: str, src_port: int, client_ip: str, client_port: int):
     """
@@ -30,6 +32,64 @@ def send_catalog(sender, src_ip: str, src_port: int, client_ip: str, client_port
     )
     sender.sendto(packet, (client_ip, 0))
     print(f"[-] Catálogo enviado para {client_ip}:{client_port}")
+
+def start_streaming(sender, src_ip: str, src_port: int, client_ip: str, client_port: int, video_name: str):
+    """
+    Inicia o streaming do vídeo solicitado para o cliente usando RTP.
+
+    Cada pacote UDP carrega: [IP Header][UDP Header][RTP Header (12B)][Chunk de vídeo]
+    O RTP adiciona sequência, timestamp e SSRC para o cliente poder:
+    - Detectar pacotes perdidos (seq)
+    - Reproduzir no tempo certo (timestamp)
+    - Identificar a fonte (ssrc)
+    """
+    video_path = os.path.join('videos', video_name)
+    if not os.path.isfile(video_path):
+        print(f"[!] Vídeo '{video_name}' não encontrado.")
+        return
+
+    CHUNK_SIZE = 1024       # Bytes de vídeo por pacote
+    CLOCK_RATE = 90000      # Clock RTP padrão para vídeo (90 kHz)
+    SEND_INTERVAL = 0.01    # 10ms entre pacotes (~100 pacotes/s)
+
+    ssrc = make_ssrc()
+    seq = 0
+    timestamp = 0
+    ts_increment = int(CLOCK_RATE * SEND_INTERVAL)  # Incremento de timestamp por pacote
+
+    print(f"[+] Streaming '{video_name}' para {client_ip}:{client_port} (SSRC=0x{ssrc:08X})")
+
+    with open(video_path, 'rb') as f:
+        while True:
+            chunk = f.read(CHUNK_SIZE)
+            if not chunk:
+                break  # Fim do arquivo
+
+            # Monta pacote RTP: header (12 bytes) + chunk de vídeo
+            rtp_data = rtp_pack(
+                seq=seq,
+                timestamp=timestamp,
+                ssrc=ssrc,
+                payload=chunk,
+                marker=(seq == 0),  # Marca o primeiro pacote
+            )
+
+            # Empacota RTP dentro de UDP/IP e envia
+            packet = build_udp_packet_bytes(
+                src_ip=src_ip,
+                dest_ip=client_ip,
+                src_port=src_port,
+                dest_port=client_port,
+                data=rtp_data,
+            )
+            sender.sendto(packet, (client_ip, 0))
+
+            seq = (seq + 1) & 0xFFFF           # Wrap-around em 16 bits
+            timestamp = (timestamp + ts_increment) & 0xFFFFFFFF
+
+            time.sleep(SEND_INTERVAL)
+
+    print(f"[+] Streaming de '{video_name}' finalizado. {seq} pacotes enviados.")
 
 def start_server(interface, src_ip, buffer_size, src_port, dst_port):
     """
@@ -77,16 +137,19 @@ def start_server(interface, src_ip, buffer_size, src_port, dst_port):
             # 2. Se o dado for 'catalog', chamar a função send_catalog()
             if data.strip() == 'catalog':
                 send_catalog(sender, src_ip, src_port, client_ip, client_port)
-            # 3. Se o dado for 'stream nome_video', chamar a função start_streaming() (a ser implementada) #TODO: IMPLEMENTAR
-            elif data.startswith('stream'):
-                print("[!] Comando de streaming recebido, mas a função start_streaming() ainda não foi implementada.")
-                # start_streaming(sender, src_ip, src_port, client_ip, client_port, nome_video)
-                pass
             # --- TAREFA: Streaming ---
-            # 1. Chamar unpack_data(raw_packet)
-            # 2. Se o dado for 'stream nome_video', chamar a função start_streaming()
-
-            pass
+            # 3. Se o dado for 'stream <nome_video>', chamar a função start_streaming()
+            elif data.startswith('stream'):
+                parts = data.split()
+                if len(parts) != 2:
+                    print(f"[!] Comando de stream mal formatado: {data} (esperado 'stream <nome_video>')")
+                    continue
+                nome_video = parts[1]
+                start_streaming(sender, src_ip, src_port, client_ip, client_port, nome_video)
+                pass
+            else:
+                print(f"[!] Comando desconhecido: {data} (esperado 'catalog' ou 'stream <nome_video>')")
+                continue
 
     except KeyboardInterrupt:
         print("\n[!] Desligando servidor...")
