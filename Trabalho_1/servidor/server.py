@@ -87,7 +87,7 @@ def start_streaming(sender, src_ip: str, src_port: int, client_ip: str, client_p
             )
             sender.sendto(packet, (client_ip, 0))
 
-            seq = (seq + 1) & 0xFFFF           # Wrap-around em 16 bits
+            seq = (seq + 1) & 0xFFFFFFFF       # Wrap-around em 32 bits
             timestamp = (timestamp + ts_increment) & 0xFFFFFFFF
 
             time.sleep(SEND_INTERVAL)
