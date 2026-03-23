@@ -51,9 +51,9 @@ def start_streaming(sender, src_ip: str, src_port: int, client_ip: str, client_p
         print(f"[!] Vídeo '{video_name}' não encontrado.")
         return
 
-    CHUNK_SIZE = 1024       # Bytes de vídeo por pacote
+    CHUNK_SIZE = 1316       # Bytes de vídeo por pacote, 7 frames de 188 bytes (tamanho típico de um pacote TS)
     CLOCK_RATE = 90000      # Clock RTP padrão para vídeo (90 kHz)
-    SEND_INTERVAL = 0.01    # 10ms entre pacotes (~100 pacotes/s)
+    SEND_INTERVAL = 0.002    # 2ms entre pacotes (~500 pacotes/s)
 
     ssrc = make_ssrc()
     seq = 0
