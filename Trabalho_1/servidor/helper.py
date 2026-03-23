@@ -5,7 +5,11 @@ import socket
 # IP_FORMAT: 20 bytes, seguindo a ordem do cabeçalho IPv4
 IP_FORMAT = "!BBHHHBBH4s4s"   
 # UDP_FORMAT: 8 bytes (Source Port, Dest Port, Length, Checksum)
-UDP_FORMAT = "!HHHH"          
+UDP_FORMAT = "!HHHH"
+
+# Erros pré-definidos
+ERROR_NOT_FOUND = "Oh guri, não achei o vídeo que tu pediu.\nDá uma olhada no catálogo (só digitar 'catalog') e tenta de novo."
+ERROR_BAD_COMMAND = "Bah galo, aí tu me complica, esse comando foi inválido. \nTenta 'catalog' ou 'stream <nome_video>'"
 
 def unpack_iph(pkg: bytes) -> tuple[int, int, int, int, int, int, int, int, bytes, bytes]:
     """

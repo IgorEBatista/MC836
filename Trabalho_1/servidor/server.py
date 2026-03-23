@@ -1,9 +1,12 @@
 import os
+import re
 import time
 import socket
 from rich import print
-from helper import unpack_iph, unpack_udp, unpack_data, build_udp_packet, build_udp_packet_bytes
+from helper import unpack_iph, unpack_udp, unpack_data, build_udp_packet, build_udp_packet_bytes, ERROR_NOT_FOUND, ERROR_BAD_COMMAND
 from rtp_protocol import rtp_pack, make_ssrc, RTP_HEADER_SIZE
+
+VIDEOS_DIR = "videos"  # Diretório onde os vídeos estão armazenados
 
 def send_catalog(sender, src_ip: str, src_port: int, client_ip: str, client_port: int):
     """
@@ -43,7 +46,7 @@ def start_streaming(sender, src_ip: str, src_port: int, client_ip: str, client_p
     - Reproduzir no tempo certo (timestamp)
     - Identificar a fonte (ssrc)
     """
-    video_path = os.path.join('videos', video_name)
+    video_path = os.path.join(VIDEOS_DIR, video_name)
     if not os.path.isfile(video_path):
         print(f"[!] Vídeo '{video_name}' não encontrado.")
         return
@@ -90,6 +93,24 @@ def start_streaming(sender, src_ip: str, src_port: int, client_ip: str, client_p
             time.sleep(SEND_INTERVAL)
 
     print(f"[+] Streaming de '{video_name}' finalizado. {seq} pacotes enviados.")
+
+def send_error(sender, src_ip: str, src_port: int, client_ip: str, client_port: int, message: str):
+    """
+    Envia uma mensagem de erro para o cliente.
+
+    Instruções:
+    1. Utilize a função build_udp_packet para montar o pacote completo.
+    2. Envie o pacote usando o socket 'sender'.
+    """
+    packet = build_udp_packet(
+        src_ip=src_ip, 
+        dest_ip=client_ip,
+        src_port=src_port,
+        dest_port=client_port,
+        data=f"Erro: {message}"
+    )
+    sender.sendto(packet, (client_ip, 0))
+    print(f"[-] Mensagem de erro enviada para {client_ip}:{client_port}: {message}")
 
 def start_server(interface, src_ip, buffer_size, src_port, dst_port):
     """
@@ -139,16 +160,17 @@ def start_server(interface, src_ip, buffer_size, src_port, dst_port):
                 send_catalog(sender, src_ip, src_port, client_ip, client_port)
             # --- TAREFA: Streaming ---
             # 3. Se o dado for 'stream <nome_video>', chamar a função start_streaming()
-            elif data.startswith('stream'):
-                parts = data.split()
-                if len(parts) != 2:
-                    print(f"[!] Comando de stream mal formatado: {data} (esperado 'stream <nome_video>')")
+            elif match := re.match(r'^stream\s+(\S+)$', data.strip()):
+                nome_video = match.group(1)
+                video_path = os.path.join(VIDEOS_DIR, nome_video)
+                if not os.path.isfile(video_path):
+                    print(f"[!] Vídeo '{nome_video}' não encontrado em {VIDEOS_DIR}/")
+                    send_error(sender, src_ip, src_port, client_ip, client_port, ERROR_NOT_FOUND)
                     continue
-                nome_video = parts[1]
                 start_streaming(sender, src_ip, src_port, client_ip, client_port, nome_video)
-                pass
             else:
                 print(f"[!] Comando desconhecido: {data} (esperado 'catalog' ou 'stream <nome_video>')")
+                send_error(sender, src_ip, src_port, client_ip, client_port, ERROR_BAD_COMMAND)
                 continue
 
     except KeyboardInterrupt:
