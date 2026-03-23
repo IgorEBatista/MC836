@@ -52,7 +52,7 @@ def start_client():
             while True:
                 # Captura o pacote bruto da rede
                 raw_packet, _ = sniffer.recvfrom(65535)
-
+                raw_packet = raw_packet[14:]  # Pula o header Ethernet (14 bytes)
                 # 1. Verificar se o pacote tem o tamanho mínimo (IP + UDP = 28 bytes)
                 if len(raw_packet) < 28: 
                     continue

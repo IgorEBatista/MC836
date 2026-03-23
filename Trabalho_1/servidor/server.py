@@ -1,3 +1,4 @@
+import os
 import socket
 from rich import print
 from helper import unpack_iph, unpack_udp, unpack_data, build_udp_packet
@@ -11,7 +12,13 @@ def send_catalog(sender, src_ip: str, src_port: int, client_ip: str, client_port
     2. Utilize a função build_udp_packet para montar o pacote completo.
     3. Envie o pacote usando o socket 'sender'.
     """
-    msg = "Catálogo: [Ainda não disponível - Implemente no servidor]"
+
+    # Recupera os nomes dos vídeos disponíveis (exemplo: arquivos .mp4 na pasta 'videos')
+    video_files = [f for f in os.listdir('videos') if f.endswith('.ts')]
+    if not video_files:
+        msg = "\n\tCatálogo: Nenhum vídeo disponível."
+    else:
+        msg = "\n\tCatálogo: " + ", ".join(video_files)
 
     # TAREFA: Chamar build_udp_packet e sender.sendto()
     packet = build_udp_packet(
@@ -42,7 +49,7 @@ def start_server(interface, src_ip, buffer_size, src_port, dst_port):
         while True:
             # Recebe o pacote bruto da rede
             raw_packet, _ = sniffer.recvfrom(buffer_size)
-
+            raw_packet = raw_packet[14:]  # Pula o header Ethernet (14 bytes)
             # --- TAREFA: PROCESSAMENTO DO CABEÇALHO IP ---
             # 1. Chamar unpack_iph(raw_packet)
             iph = unpack_iph(raw_packet)
@@ -54,7 +61,6 @@ def start_server(interface, src_ip, buffer_size, src_port, dst_port):
             # Use socket.inet_ntoa() para converter os bytes do IP para string.
 
             client_ip = socket.inet_ntoa(iph[8])
-            print(f"\n[+] Pacote recebido de {client_ip}")
 
             # --- TAREFA: PROCESSAMENTO DO CABEÇALHO UDP ---
             # 1. Chamar unpack_udp(raw_packet)
@@ -63,6 +69,7 @@ def start_server(interface, src_ip, buffer_size, src_port, dst_port):
             if udph[1] != src_port:
                 continue
             client_port = udph[0]
+            print(f"\n[+] Pacote recebido de {client_ip}:{client_port}")
             # --- TAREFA: PAYLOAD E LÓGICA ---
             # 1. Chamar unpack_data(raw_packet)
             data = unpack_data(raw_packet).decode(errors='ignore')
