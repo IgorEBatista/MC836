@@ -18,8 +18,8 @@ def send_catalog(sender, src_ip: str, src_port: int, client_ip: str, client_port
     3. Envie o pacote usando o socket 'sender'.
     """
 
-    # Recupera os nomes dos vídeos disponíveis (exemplo: arquivos .mp4 na pasta 'videos')
-    video_files = [f for f in os.listdir('videos') if f.endswith('.ts')]
+    # Recupera os nomes dos vídeos disponíveis (exemplo: arquivos .ts na pasta 'videos')
+    video_files = [f[:-3] for f in os.listdir('videos') if f.endswith('.ts')]
     if not video_files:
         msg = "\n\tCatálogo: Nenhum vídeo disponível."
     else:
@@ -161,7 +161,7 @@ def start_server(interface, src_ip, buffer_size, src_port, dst_port):
             # --- TAREFA: Streaming ---
             # 3. Se o dado for 'stream <nome_video>', chamar a função start_streaming()
             elif match := re.match(r'^stream\s+(\S+)$', data.strip()):
-                nome_video = match.group(1)
+                nome_video = match.group(1) + ".ts"  # Adiciona extensão .ts para buscar o arquivo
                 video_path = os.path.join(VIDEOS_DIR, nome_video)
                 if not os.path.isfile(video_path):
                     print(f"[!] Vídeo '{nome_video}' não encontrado em {VIDEOS_DIR}/")

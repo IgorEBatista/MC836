@@ -43,7 +43,7 @@ def receive_stream(sniffer: socket.socket, video_name: str):
     TIMEOUT = 3.0  # Segundos sem pacotes para considerar fim do stream
 
     os.makedirs(VIDEOS_DIR, exist_ok=True)
-    output_path = os.path.join(VIDEOS_DIR, video_name)
+    output_path = os.path.join(VIDEOS_DIR, video_name + ".ts")
 
     total_packets = 0
     total_bytes = 0
